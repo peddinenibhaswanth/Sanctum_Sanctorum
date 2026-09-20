@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Book
@@ -14,10 +15,15 @@ def create_book(db: Session, data: BookCreate) -> Book:
 
     Rules: the (already normalized) ISBN must be unique -> 409 otherwise.
     """
-    # TODO: reject a duplicate ISBN with 409
     book = Book(**data.model_dump())
     db.add(book)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The unique constraint on ``isbn`` is the source of truth, so this is also safe
+        # when two requests try to add the same ISBN at the same moment.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A book with this ISBN already exists")
     db.refresh(book)
     return book
 
