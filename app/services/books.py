@@ -8,6 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Book
 from app.schemas import BookCreate, BookPage, BookSort, BookUpdate
+SORT_ORDER = {
+    "title": Book.title.asc(),
+    "-title": Book.title.desc(),
+    "price": Book.price_cents.asc(),
+    "-price": Book.price_cents.desc(),
+}
 
 
 def create_book(db: Session, data: BookCreate) -> Book:
@@ -76,6 +82,9 @@ def list_books(
         filters.append(Book.price_cents <= max_price)
 
     total = db.scalar(select(func.count()).select_from(Book).where(*filters))
-    books = db.scalars(select(Book).where(*filters).order_by(Book.id.asc()).limit(limit).offset(offset)).all()
+    order_by = [Book.id.asc()]
+    if sort is not None:
+        order_by.insert(0, SORT_ORDER[sort])
+    books = db.scalars(select(Book).where(*filters).order_by(*order_by).limit(limit).offset(offset)).all()
 
     return BookPage(items=books, total=total, limit=limit, offset=offset)
