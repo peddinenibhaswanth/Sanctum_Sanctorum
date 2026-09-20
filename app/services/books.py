@@ -38,7 +38,12 @@ def get_book(db: Session, book_id: int) -> Book:
 
 def update_book(db: Session, book_id: int, data: BookUpdate) -> Book:
     """Apply a partial update. Only fields present in the request are changed; 404 if missing."""
-    raise NotImplementedError("update_book")
+    book = get_book(db, book_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(book, field, value)
+    db.commit()
+    db.refresh(book)
+    return book
 
 
 def list_books(
