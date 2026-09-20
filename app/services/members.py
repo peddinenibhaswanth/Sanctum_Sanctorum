@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Member, MemberTier, Order
@@ -42,7 +43,13 @@ def create_member(db: Session, data: MemberCreate, now: datetime) -> Member:
     # TODO: reject an email that is already in use with 409
     member = Member(name=data.name, email=data.email, tier=data.tier.value, created_at=now)
     db.add(member)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # The unique constraint on ``email`` is the source of truth (emails are stored
+        # lowercased, so it is case-insensitive) and also covers simultaneous requests.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A member with this email already exists")
     db.refresh(member)
     return member
 
