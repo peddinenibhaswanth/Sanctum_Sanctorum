@@ -3,10 +3,13 @@ from datetime import datetime
 from typing import Dict
 
 from fastapi import HTTPException
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.models import Member, MemberTier, Order, OrderStatus
+from app.models import Book, Member, MemberTier, Order, OrderItem, OrderStatus
 from app.schemas import OrderCreate
+from app.services.books import get_book
+from app.services.members import ensure_can_access_restricted, get_member
 
 # Percentage discount granted by each membership tier.
 TIER_DISCOUNT_PERCENT: Dict[str, int] = {
@@ -39,14 +42,51 @@ def create_order(db: Session, data: OrderCreate, now: datetime) -> Order:
     Then stock is decremented for every item and prices are snapshotted.
     Pricing: discount_cents = subtotal * percent // 100; total = subtotal - discount.
     """
-    # TODO:
-    # 1. Load the member (404) and every book (404).
-    # 2. If any book is restricted, check the member's tier (403).
-    # 3. Check stock for every item before changing anything (409).
-    # 4. Decrement stock and build OrderItems with the current price as unit_price_cents.
-    # 5. Compute subtotal, discount_percent (calculate_discount_percent), discount_cents, total.
-    # 6. Save the pending Order with created_at = now and return it.
-    raise NotImplementedError("create_order")
+    member = get_member(db, data.member_id)
+    books = {item.book_id: get_book(db, item.book_id) for item in data.items}
+    if any(book.restricted for book in books.values()):
+        ensure_can_access_restricted(member)
+
+    # Reserve stock with a conditional UPDATE, so the database itself refuses to go below zero.
+    # Books are locked in id order so two orders touching the same books cannot deadlock.
+    # If any book is short, the rollback also undoes the decrements already made (all-or-nothing).
+    for item in sorted(data.items, key=lambda item: item.book_id):
+        reserved = db.execute(
+            update(Book)
+            .where(Book.id == item.book_id, Book.stock >= item.quantity)
+            .values(stock=Book.stock - item.quantity)
+            .execution_options(synchronize_session=False)
+        )
+        if reserved.rowcount == 0:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=f"Insufficient stock for book {item.book_id}")
+
+    subtotal = sum(item.quantity * books[item.book_id].price_cents for item in data.items)
+    total_quantity = sum(item.quantity for item in data.items)
+    discount_percent = calculate_discount_percent(member, total_quantity)
+    discount_cents = subtotal * discount_percent // 100
+
+    order = Order(
+        member_id=member.id,
+        status=OrderStatus.PENDING.value,
+        subtotal_cents=subtotal,
+        discount_percent=discount_percent,
+        discount_cents=discount_cents,
+        total_cents=subtotal - discount_cents,
+        created_at=now,
+        items=[
+            OrderItem(
+                book_id=item.book_id,
+                quantity=item.quantity,
+                unit_price_cents=books[item.book_id].price_cents,
+            )
+            for item in data.items
+        ],
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
 
 
 def get_order(db: Session, order_id: int) -> Order:
