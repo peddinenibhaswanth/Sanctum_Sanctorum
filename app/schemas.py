@@ -26,9 +26,11 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 def normalize_isbn13(raw: str) -> str:
     """Strip hyphens/spaces and verify the ISBN-13 checksum. Raises ValueError if invalid."""
     isbn = raw.replace("-", "").replace(" ", "")
-    if len(isbn) != 13 or not isbn.isdigit():
+    if len(isbn) != 13 or not (isbn.isascii() and isbn.isdigit()):
         raise ValueError("isbn must contain exactly 13 digits")
-    # TODO: verify the ISBN-13 check digit (see SPEC.md)
+    weighted_sum = sum(int(digit) * (3 if index % 2 else 1) for index, digit in enumerate(isbn[:12]))
+    if int(isbn[12]) != (10 - weighted_sum % 10) % 10:
+        raise ValueError("isbn has an invalid check digit")
     return isbn
 
 
