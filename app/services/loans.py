@@ -21,17 +21,35 @@ LATE_FEE_PER_DAY_CENTS = 25
 
 def loan_status(loan: Loan, now: datetime) -> LoanStatus:
     """``returned`` if returned; else ``overdue`` if now > due_at; else ``active``."""
-    raise NotImplementedError("loan_status")
+    if loan.returned_at is not None:
+        return "returned"
+    if now > loan.due_at:
+        return "overdue"
+    return "active"
 
 
 def to_loan_out(loan: Loan, now: datetime) -> LoanOut:
     """Serialize a loan, computing its status at read time."""
-    raise NotImplementedError("to_loan_out")
+    return LoanOut(
+        id=loan.id,
+        member_id=loan.member_id,
+        book_id=loan.book_id,
+        borrowed_at=loan.borrowed_at,
+        due_at=loan.due_at,
+        returned_at=loan.returned_at,
+        late_fee_cents=loan.late_fee_cents,
+        status=loan_status(loan, now),
+    )
 
 
 def calculate_late_fee(due_at: datetime, returned_at: datetime, price_cents: int) -> int:
     """25 cents per started day late (any partial day counts), capped at the book's price; 0 if not late."""
-    raise NotImplementedError("calculate_late_fee")
+    if returned_at <= due_at:
+        return 0
+    # divmod on timedeltas stays in exact integer arithmetic (no float rounding).
+    whole_days, remainder = divmod(returned_at - due_at, timedelta(days=1))
+    days_late = whole_days + (1 if remainder else 0)
+    return min(days_late * LATE_FEE_PER_DAY_CENTS, price_cents)
 
 
 def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
