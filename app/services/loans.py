@@ -115,7 +115,7 @@ def create_loan(db: Session, data: LoanCreate, now: datetime) -> LoanOut:
 
 def get_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     """Return a loan by id, or raise 404."""
-    raise NotImplementedError("get_loan")
+    return to_loan_out(_get_loan(db, loan_id), now)
 
 
 def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
@@ -124,11 +124,28 @@ def return_loan(db: Session, loan_id: int, now: datetime) -> LoanOut:
     Rules: 404 if missing; 409 if already returned. Sets returned_at = now, restores one copy
     of stock and charges a late fee (see ``calculate_late_fee``).
     """
-    raise NotImplementedError("return_loan")
+    loan = _get_loan(db, loan_id)
+    if loan.returned_at is not None:
+        raise HTTPException(status_code=409, detail="Loan has already been returned")
+    loan.late_fee_cents = calculate_late_fee(loan.due_at, now, loan.book.price_cents)
+    loan.returned_at = now
+    db.execute(
+        update(Book)
+        .where(Book.id == loan.book_id)
+        .values(stock=Book.stock + 1)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    db.refresh(loan)
+    return to_loan_out(loan, now)
 
 
 def list_member_loans(
     db: Session, member_id: int, now: datetime, status: Optional[LoanStatus] = None
 ) -> List[LoanOut]:
     """A member's loans ordered by id, optionally filtered by computed status; 404 if member missing."""
-    raise NotImplementedError("list_member_loans")
+    member = get_member(db, member_id)
+    loans = [to_loan_out(loan, now) for loan in member.loans]
+    if status is not None:
+        loans = [loan for loan in loans if loan.status == status]
+    return loans
