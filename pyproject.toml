@@ -10,6 +10,11 @@ dependencies = [
     "pydantic>=2.6,<3.0",
 ]
 
+[project.optional-dependencies]
+deploy = [
+    "psycopg[binary]>=3.3.6",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
