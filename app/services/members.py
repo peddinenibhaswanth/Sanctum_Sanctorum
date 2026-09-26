@@ -1,6 +1,6 @@
 """Member operations and tier helpers."""
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Loan, Member, MemberTier, Order, OrderStatus
-from app.schemas import MemberCreate, MemberStats
+from app.schemas import MemberCreate, MemberPage, MemberStats
 
 # Tiers from lowest to highest; a member's rank is their index in this list.
 TIER_ORDER: List[str] = [
@@ -105,3 +105,21 @@ def get_member_stats(db: Session, member_id: int, now: datetime) -> MemberStats:
         overdue_loans=overdue_loans,
         late_fees_cents=late_fees_cents,
     )
+
+
+def list_members(
+    db: Session,
+    tier: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> MemberPage:
+    """List members, optionally filtered by tier, oldest-id first."""
+    filters = []
+    if tier is not None:
+        filters.append(Member.tier == tier)
+
+    total = db.scalar(select(func.count()).select_from(Member).where(*filters))
+    members = db.scalars(
+        select(Member).where(*filters).order_by(Member.id.asc()).limit(limit).offset(offset)
+    ).all()
+    return MemberPage(items=members, total=total, limit=limit, offset=offset)
