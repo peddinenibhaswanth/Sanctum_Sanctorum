@@ -1411,6 +1411,7 @@ function initActions() {
       case 'close-order-detail': state.orderDetail = null; renderOrderDetail(); break;
       case 'refresh-orders': loadOrders(); break;
       case 'refresh-loans': loadLoans(); break;
+      case 'loan-return': returnLoan(id, target); break;
       case 'refresh-reports': loadReports(); break;
       case 'refresh-member': refreshMember(); break;
       case 'sign-out':
