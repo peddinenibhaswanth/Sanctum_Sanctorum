@@ -163,3 +163,50 @@ class TestMemberStats:
 
     def test_stats_for_missing_member_returns_404(self, client):
         assert client.get("/members/9999/stats").status_code == 404
+class TestListMembers:
+    def test_default_pagination(self, client, make_member):
+        for _ in range(3):
+            make_member()
+
+        response = client.get("/members")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 3
+        assert body["limit"] == 20
+        assert body["offset"] == 0
+        assert len(body["items"]) == 3
+        # Oldest-id-first, same convention as list_books.
+        assert [m["id"] for m in body["items"]] == sorted(m["id"] for m in body["items"])
+
+    def test_filters_by_tier(self, client, make_member):
+        make_member(tier="apprentice")
+        make_member(tier="master")
+        make_member(tier="apprentice")
+
+        response = client.get("/members", params={"tier": "apprentice"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert all(m["tier"] == "apprentice" for m in body["items"])
+
+    def test_invalid_tier_is_422(self, client):
+        response = client.get("/members", params={"tier": "wizard"})
+        assert response.status_code == 422
+
+    def test_limit_and_offset(self, client, make_member):
+        created = [make_member() for _ in range(5)]
+
+        response = client.get("/members", params={"limit": 2, "offset": 1})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 5
+        assert body["limit"] == 2
+        assert body["offset"] == 1
+        assert [m["id"] for m in body["items"]] == [created[1]["id"], created[2]["id"]]
+
+    def test_limit_out_of_range_is_422(self, client):
+        assert client.get("/members", params={"limit": 0}).status_code == 422
+        assert client.get("/members", params={"limit": 101}).status_code == 422
